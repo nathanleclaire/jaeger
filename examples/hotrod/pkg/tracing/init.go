@@ -18,13 +18,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jaegertracing/jaeger/examples/hotrod/pkg/log"
 	"github.com/opentracing/opentracing-go"
+	jaeger "github.com/uber/jaeger-client-go"
 	"github.com/uber/jaeger-client-go/config"
 	"github.com/uber/jaeger-client-go/rpcmetrics"
+	"github.com/uber/jaeger-client-go/transport/zipkin"
 	"github.com/uber/jaeger-lib/metrics"
 	"go.uber.org/zap"
-
-	"github.com/jaegertracing/jaeger/examples/hotrod/pkg/log"
 )
 
 // Init creates a new instance of Jaeger tracer.
@@ -41,11 +42,20 @@ func Init(serviceName string, metricsFactory metrics.Factory, logger log.Factory
 	time.Sleep(100 * time.Millisecond)
 	jaegerLogger := jaegerLoggerAdapter{logger.Bg()}
 
+	transport, err := zipkin.NewHTTPTransport(
+		"http://honeycombot:9411/api/v1/spans",
+		zipkin.HTTPLogger(jaeger.StdLogger),
+	)
+	if err != nil {
+		logger.Bg().Fatal("Cannot initialize HTTP transport: ", zap.Error(err))
+	}
+
 	metricsFactory = metricsFactory.Namespace(metrics.NSOptions{Name: serviceName, Tags: nil})
 	tracer, _, err := cfg.NewTracer(
 		config.Logger(jaegerLogger),
 		config.Metrics(metricsFactory),
 		config.Observer(rpcmetrics.NewObserver(metricsFactory, rpcmetrics.DefaultNameNormalizer)),
+		config.Reporter(jaeger.NewRemoteReporter(transport)),
 	)
 	if err != nil {
 		logger.Bg().Fatal("cannot initialize Jaeger Tracer", zap.Error(err))
